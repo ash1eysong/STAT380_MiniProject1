@@ -5,4 +5,18 @@ format: html
 editor: visual
 ---
 
-## 
+## Importing and Joining Data
+
+```{r}
+library(readr)
+#Predicted Variable
+pop <- read_csv("data/pop.csv")
+
+#Predictor Variables
+at_least_basic_sanitation_overall_access_percent <- read_csv("data/at_least_basic_sanitation_overall_access_percent.csv")
+children_per_woman_total_fertility <- read_csv("data/children_per_woman_total_fertility.csv")
+co2_pcap_cons <- read_csv("data/co2_pcap_cons.csv")
+hapiscore_whr <- read_csv("data/hapiscore_whr.csv")
+ilevels4_wb <- read_csv("data/ilevels4_wb.csv")
+number_of_people_in_poverty <- read_csv("data/number_of_people_in_poverty.csv")
+```
