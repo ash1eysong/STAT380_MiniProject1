@@ -1,0 +1,8 @@
+---
+title: "Stat380_MiniProject1"
+author: " "
+format: html
+editor: visual
+---
+
+## 
