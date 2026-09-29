@@ -1,0 +1,74 @@
+---
+title: "Mini Project 1 Data Joining"
+format: pdf
+editor: visual
+---
+
+## Libraries
+
+```{r}
+#| label: libraries
+#| message: false
+library(tidyverse)
+```
+
+## Import the data files
+
+Each file is in wide format with one row per country and one column per year.
+
+```{r}
+#| label: import
+#| message: false
+sanitation <- read_csv("../data/predictors/at_least_basic_sanitation_overall_access_percent.csv")
+fertility  <- read_csv("../data/predictors/children_per_woman_total_fertility.csv")
+co2        <- read_csv("../data/predictors/co2_pcap_cons.csv")
+happiness  <- read_csv("../data/predictors/hapiscore_whr.csv")
+income     <- read_csv("../data/predictors/ilevels4_wb.csv", col_types = cols(.default = "c"))
+poverty    <- read_csv("../data/predictors/number_of_people_in_poverty.csv")
+```
+
+## Dropping Year Columns
+
+The year columns from 2023 onwards are dropped first. Each dataset is then changed to long format so that all of them share the same geo, name and year keys, which avoids duplicated year column names when joining.
+
+```{r}
+#| label: drop-and-pivot
+drop_and_pivot <- function(df, value_name) {
+  df |>
+    select(-any_of(as.character(2023:2100))) |>
+    pivot_longer(
+      cols = -c(geo, name),
+      names_to = "year",
+      values_to = value_name
+    ) |>
+    mutate(year = as.integer(year))
+}
+
+sanitation_long <- drop_and_pivot(sanitation, "sanitation_access_pct")
+fertility_long  <- drop_and_pivot(fertility, "children_per_woman")
+co2_long        <- drop_and_pivot(co2, "co2_per_capita")
+happiness_long  <- drop_and_pivot(happiness, "happiness_score")
+income_long     <- drop_and_pivot(income, "income_level")
+poverty_long    <- drop_and_pivot(poverty, "people_in_poverty")
+```
+
+## Join into a single dataset
+
+```{r}
+#| label: join
+combined <- list(
+  sanitation_long, fertility_long, co2_long,
+  happiness_long, income_long, poverty_long
+) |>
+  reduce(full_join, by = c("geo", "name", "year")) |>
+  arrange(geo, year)
+
+glimpse(combined)
+```
+
+```{r}
+#| label: check
+range(combined$year)
+n_distinct(combined$geo)
+head(combined)
+```
