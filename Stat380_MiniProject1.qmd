@@ -76,12 +76,13 @@ poverty_long |>
     sd_poverty = sd(people_in_poverty, na.rm = TRUE))
 poverty_long |> 
   ggplot(aes(x=year, y=people_in_poverty, color = name)) +
-  geom_line(linewidth = 1) +
+  geom_line(linewidth = .001) +
   labs(
     title = "Poverty Counts Over Time",
     x = "Year",
     y= "Number of People in Poverty"
-  )
+  ) +
+  theme(legend.text = element_text(size = 8))
 
 #Basic Sanitation Overall (Quantitative)
 sanitation_long |>
@@ -93,14 +94,18 @@ sanitation_long |>
     sd_sanitation_percentage = sd(sanitation_access_pct, na.rm = TRUE))
 
 sanitation_long |>
-  ggplot(aes(x=year, y=sanitation_access_pct, color = name)) +
-  geom_line(linewidth = 1) +
+  ggplot(aes(x=year, y=sanitation_access_pct)) +
+  geom_line(linewidth = .001) +
   labs(
     title = "Basic Sanitation Percentage Over Time",
     x = "Year",
     y = "Sanitation Access Percentage"
-  )
+  ) +
+  facet_wrap(vars(name))
 ```
+Observations of Poverty: There were many NA values inside of poverty specifically for countries that were made quite recently. These will have to be removed as they will not work when creating a model.
+
+Observations of Sanitation: The data is from 2000 beyond and contains some NA values which will have to be removed later. A notable country in this data set is Andorra as it has 100% sanitation access for all the years recorded. 
 
 ```{r}
 set.seed(123)
