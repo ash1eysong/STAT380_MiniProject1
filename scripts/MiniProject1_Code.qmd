@@ -1,18 +1,22 @@
 ---
-title: "Mini Project 1 Data Joining"
+title: "Stat 380 Mini Project 1"
+author: "Ashley Song, Ian Peralta, Bryan Xiao"
 format: pdf
 editor: visual
 ---
 
-## Libraries
+## 1. Load Data
+
+### 1.1 Libraries
 
 ```{r}
 #| label: libraries
 #| message: false
 library(tidyverse)
+library(ggplot2)
 ```
 
-## Import the data files
+### 1.2 Import Data Files
 
 Each file is in wide format with one row per country and one column per year.
 
@@ -25,9 +29,10 @@ co2        <- read_csv("../data/predictors/co2_pcap_cons.csv")
 happiness  <- read_csv("../data/predictors/hapiscore_whr.csv")
 income     <- read_csv("../data/predictors/ilevels4_wb.csv", col_types = cols(.default = "c"))
 poverty    <- read_csv("../data/predictors/number_of_people_in_poverty.csv")
+population <- read_csv("../data/response/pop.csv")
 ```
 
-## Dropping Year Columns
+### 1.3 Dropping Year Columns
 
 The year columns from 2023 onwards are dropped first. Each dataset is then changed to long format so that all of them share the same geo, name and year keys, which avoids duplicated year column names when joining.
 
@@ -50,14 +55,15 @@ co2_long        <- drop_and_pivot(co2, "co2_per_capita")
 happiness_long  <- drop_and_pivot(happiness, "happiness_score")
 income_long     <- drop_and_pivot(income, "income_level")
 poverty_long    <- drop_and_pivot(poverty, "people_in_poverty")
+population_long <- drop_and_pivot(population, "population")
 ```
 
-## Join into a single dataset
+### 1.4 Join into a Single Dataset
 
 ```{r}
 #| label: join
 combined <- list(
-  sanitation_long, fertility_long, co2_long,
+  population_long, sanitation_long, fertility_long, co2_long,
   happiness_long, income_long, poverty_long
 ) |>
   reduce(full_join, by = c("geo", "name", "year")) |>
@@ -72,3 +78,595 @@ range(combined$year)
 n_distinct(combined$geo)
 head(combined)
 ```
+
+## 2. Exploratory Data Analysis
+
+### 2.1 Population
+
+`population` is quantitative and discrete, measured as the total number of people living in a country. Values are non-negative whole numbers because population represents a count of people. This will be our response variable.
+
+```{r}
+population_long |>
+  summarise(
+    n           = n(),
+    n_missing   = sum(is.na(population)),
+    pct_missing = round(100 * mean(is.na(population)), 1),
+    first_year  = min(year[!is.na(population)]),
+    last_year   = max(year[!is.na(population)])
+  )
+```
+
+There are 22 missing population observations, representing 0.1% of the data. Because the population data cover many countries across a long time period, the small number of missing observations appears to be limited missing data rather than a major issue with the dataset.
+
+```{r}
+population_long |>
+  filter(!is.na(population), population < 0) |>
+  arrange(population)
+```
+
+There are no negative population values, so no observations need to be removed based on this check. The population data are clean with respect to impossible negative values.
+
+```{r}
+population_long |>
+  filter(!is.na(population)) |>
+  summarise(
+    mean   = mean(population),
+    median = median(population),
+    sd     = sd(population),
+    min    = min(population),
+    q1     = quantile(population, 0.25),
+    q3     = quantile(population, 0.75),
+    max    = max(population)
+  )
+```
+
+```{r}
+population_2022 <- population_long |>
+  filter(!is.na(population), year == 2022)
+
+population_2022 |>
+  summarise(
+    year        = unique(year),
+    n_countries = n(),
+    mean        = mean(population),
+    median      = median(population),
+    sd          = sd(population),
+    min         = min(population),
+    q1          = quantile(population, 0.25),
+    q3          = quantile(population, 0.75),
+    max         = max(population)
+  )
+```
+
+In 2022, the dataset contains 194 countries. The mean population is about 41.1 million, while the median is about 9.1 million, showing that the distribution is strongly right-skewed. The standard deviation is about 149.8 million, reflecting the large differences in population size between countries. The middle 50% of countries have populations between approximately 2.1 million and 30.4 million. The maximum population is approximately 1.43 billion, indicating that a small number of highly populated countries have a large influence on the mean.
+
+```{r}
+#| fig-cap: "Mean population by year"
+
+population_long |>
+  filter(!is.na(population)) |>
+  group_by(year) |>
+  summarise(mean_population = mean(population)) |>
+  ggplot(aes(year, mean_population)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  labs(
+    x = "Year",
+    y = "Mean population",
+    title = "Mean Population by Year"
+  ) +
+  theme_minimal()
+```
+
+The mean population increased throughout the period shown, with population growth becoming much more rapid after approximately 1950. This indicates substantial growth in the average population of countries over time, particularly during the second half of the twentieth century.
+
+```{r}
+#| fig-cap: "Distribution of country populations, 2022"
+
+ggplot(population_2022, aes(population)) +
+  geom_histogram(bins = 25, fill = "blue", color = "white") +
+  labs(
+    x = "Population",
+    y = "Number of countries",
+    title = "Distribution of country populations, 2022"
+  ) +
+  theme_minimal()
+```
+
+The 2022 population distribution is strongly right-skewed. Most countries have relatively small populations, while only a few countries have populations much larger than the rest. The extreme value near 1.4 billion corresponds to one of the world's most populous countries and has a strong influence on the mean.
+
+```{r}
+bind_rows(
+  population_2022 |>
+    slice_max(population, n = 5) |>
+    mutate(group = "Highest"),
+  population_2022 |>
+    slice_min(population, n = 5) |>
+    mutate(group = "Lowest")
+) |>
+  select(group, name, population)
+```
+
+Population is highly variable across countries and has increased substantially over time. The 2022 distribution is strongly right-skewed, with most countries having relatively small populations and a small number of countries having extremely large populations. India and China are clear high-end outliers, each having about 1.43 billion people, while several small island and European countries have populations below 40,000. Because of this strong skew and the influence of very large countries, the median is more representative of a typical country's population than the mean.
+
+### 2.2 Children per Woman
+
+`children_per_woman` is quantitative and continuous. It represents the average number of children a woman would have over her lifetime. Because it is an average, it can take decimal values rather than only whole numbers.
+
+```{r}
+children_per_woman_long <- fertility_long
+
+children_per_woman_long |>
+  summarise(
+    n           = n(),
+    n_missing   = sum(is.na(children_per_woman)),
+    pct_missing = round(100 * mean(is.na(children_per_woman)), 1),
+    first_year  = min(year[!is.na(children_per_woman)]),
+    last_year   = max(year[!is.na(children_per_woman)])
+  )
+```
+
+There are no missing observations for children per woman, so the variable has complete coverage across the dataset from 1800 to 2022.
+
+```{r}
+children_per_woman_long |>
+  filter(!is.na(children_per_woman), children_per_woman < 0) |>
+  arrange(children_per_woman)
+```
+
+There are no negative values for children per woman, so no observations need to be removed based on this check. The data are clean with respect to impossible negative values.
+
+We also make sure the variable is stored numerically.
+
+```{r}
+children_per_woman_long <- children_per_woman_long |>
+  mutate(children_per_woman = as.numeric(children_per_woman))
+```
+
+```{r}
+children_per_woman_long |>
+  filter(!is.na(children_per_woman)) |>
+  summarise(
+    mean   = mean(children_per_woman),
+    median = median(children_per_woman),
+    sd     = sd(children_per_woman),
+    min    = min(children_per_woman),
+    q1     = quantile(children_per_woman, 0.25),
+    q3     = quantile(children_per_woman, 0.75),
+    max    = max(children_per_woman)
+  )
+```
+
+```{r}
+children_per_woman_2022 <- children_per_woman_long |>
+  filter(!is.na(children_per_woman), year == 2022)
+
+children_per_woman_2022 |>
+  summarise(
+    year        = unique(year),
+    n_countries = n(),
+    mean        = mean(children_per_woman),
+    median      = median(children_per_woman),
+    sd          = sd(children_per_woman),
+    min         = min(children_per_woman),
+    q1          = quantile(children_per_woman, 0.25),
+    q3          = quantile(children_per_woman, 0.75),
+    max         = max(children_per_woman)
+  )
+```
+
+In 2022, the mean number of children per woman was 2.50 and the median was 2.00. The standard deviation was 1.25, with values ranging from 0.78 to 6.26 children per woman. The middle 50% of countries had values between approximately 1.54 and 3.28. The mean being higher than the median indicates that the 2022 distribution is right-skewed, with a smaller number of countries having substantially higher fertility rates.
+
+```{r}
+#| fig-cap: "Mean children per woman by year"
+
+children_per_woman_long |>
+  filter(!is.na(children_per_woman)) |>
+  group_by(year) |>
+  summarise(mean_children = mean(children_per_woman)) |>
+  ggplot(aes(year, mean_children)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  labs(
+    x = "Year",
+    y = "Mean children per woman",
+    title = "Mean children per woman by year"
+  ) +
+  theme_minimal()
+```
+
+The mean number of children per woman declined substantially over time. It remained close to 6 children per woman throughout much of the 1800s, followed by a gradual decline during the first half of the twentieth century. After a small increase around the middle of the twentieth century, the average declined more rapidly, reaching about 2.5 children per woman by 2022.
+
+```{r}
+#| fig-cap: "Distribution of children per woman, 2022"
+
+ggplot(children_per_woman_2022, aes(children_per_woman)) +
+  geom_histogram(bins = 25, fill = "blue", color = "white") +
+  labs(
+    x = "Children per woman",
+    y = "Number of countries",
+    title = "Distribution of children per woman, 2022"
+  ) +
+  theme_minimal()
+```
+
+In 2022, most countries had between about 1 and 3 children per woman, with the largest concentration around 1.5 to 2 children per woman. The distribution is right-skewed because a smaller number of countries have substantially higher fertility rates, with some exceeding 6 children per woman.
+
+```{r}
+bind_rows(
+  children_per_woman_2022 |>
+    slice_max(children_per_woman, n = 5) |>
+    mutate(group = "Highest"),
+  children_per_woman_2022 |>
+    slice_min(children_per_woman, n = 5) |>
+    mutate(group = "Lowest")
+) |>
+  select(group, name, children_per_woman)
+```
+
+Children per woman has changed substantially over time, declining from an average of around 6 children per woman in the 1800s to 2.50 in 2022. The 2022 distribution is right-skewed, with most countries having between about 1 and 3 children per woman and a smaller group having substantially higher fertility rates. The large variation across countries suggests that children per woman may be useful to consider as a potential predictor of population.
+
+Relationship with Population
+
+```{r}
+children_pop_2022 <- children_per_woman_2022 |>
+  inner_join(
+    population_long |> filter(year == 2022),
+    by = c("geo", "name", "year")
+  )
+```
+
+```{r}
+cor(
+  children_pop_2022$children_per_woman,
+  log10(children_pop_2022$population),
+  use = "complete.obs"
+)
+```
+
+```{r}
+#| fig-cap: "Children per woman against population, 2022"
+
+ggplot(
+  children_pop_2022,
+  aes(population, children_per_woman)
+) +
+  geom_point(alpha = 0.6, color = "blue") +
+  scale_x_log10(labels = scales::comma) +
+  labs(
+    x = "Population, log scale",
+    y = "Children per woman"
+  ) +
+  theme_minimal()
+```
+
+The correlation is 0.129, indicating a very weak positive relationship between children per woman and log population. The scatterplot shows substantial variation, suggesting that population size is not a strong predictor of fertility rate.
+
+### 2.3 Happiness Score
+
+`happiness_score` is quantitative and continuous. It represents a country's average life evaluation on a 0 to 100 scale. Values can include decimals because the variable is an average score.
+
+```{r}
+happiness_long |>
+  summarise(
+    n           = n(),
+    n_missing   = sum(is.na(happiness_score)),
+    pct_missing = round(100 * mean(is.na(happiness_score)), 1),
+    first_year  = min(year[!is.na(happiness_score)]),
+    last_year   = max(year[!is.na(happiness_score)])
+  )
+```
+
+There are 721 missing happiness score observations, representing 24.9% of the data. The data are available from 2005 to 2022, and the missing values are likely due to limited coverage in earlier years and for some countries.
+
+Because happiness score is measured on a 0–100 scale, we check for values outside that range.
+
+```{r}
+happiness_long |>
+  filter(
+    !is.na(happiness_score),
+    happiness_score < 0 | happiness_score > 100
+  ) |>
+  arrange(happiness_score)
+```
+
+There are no observations outside the expected 0–100 range.
+
+We also make sure the variable is stored numerically.
+
+```{r}
+happiness_long <- happiness_long |>
+  mutate(happiness_score = as.numeric(happiness_score))
+```
+
+```{r}
+happiness_long |>
+  filter(!is.na(happiness_score)) |>
+  summarise(
+    mean   = mean(happiness_score),
+    median = median(happiness_score),
+    sd     = sd(happiness_score),
+    min    = min(happiness_score),
+    q1     = quantile(happiness_score, 0.25),
+    q3     = quantile(happiness_score, 0.75),
+    max    = max(happiness_score)
+  )
+```
+
+```{r}
+happiness_2022 <- happiness_long |>
+  filter(!is.na(happiness_score), year == 2022)
+
+happiness_2022 |>
+  summarise(
+    year        = unique(year),
+    n_countries = n(),
+    mean        = mean(happiness_score),
+    median      = median(happiness_score),
+    sd          = sd(happiness_score),
+    min         = min(happiness_score),
+    q1          = quantile(happiness_score, 0.25),
+    q3          = quantile(happiness_score, 0.75),
+    max         = max(happiness_score)
+  )
+```
+
+Across all years, happiness scores had a mean of 54.68 and a median of 54.05, with values ranging from 12.81 to 80.19. The standard deviation was 11.33, showing moderate variation in happiness scores. In 2022, the mean happiness score was 54.88 and the median was 57.88. Scores ranged from 12.81 to 77.29, with the middle 50% falling between 45.96 and 63.57.
+
+```{r}
+#| fig-cap: "Mean happiness score by year"
+
+happiness_long |>
+  filter(!is.na(happiness_score)) |>
+  group_by(year) |>
+  summarise(mean_happiness = mean(happiness_score)) |>
+  ggplot(aes(year, mean_happiness)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  labs(
+    x = "Year",
+    y = "Mean happiness score",
+    title = "Mean happiness score by year"
+  ) +
+  theme_minimal()
+```
+
+The mean happiness score fluctuates over time, generally staying between about 54 and 57 after 2006. The highest mean occurs in 2020, followed by a decline through 2022.
+
+```{r}
+#| fig-cap: "Distribution of happiness scores, 2022"
+
+ggplot(happiness_2022, aes(happiness_score)) +
+  geom_histogram(bins = 25, fill = "blue", color = "white") +
+  labs(
+    x = "Happiness score",
+    y = "Number of countries",
+    title = "Distribution of happiness scores, 2022
+    "
+  ) +
+  theme_minimal()
+```
+
+The 2022 happiness scores are concentrated around 55–65, with most countries scoring above 50. A small number of countries have much lower scores, creating a longer left tail.
+
+```{r}
+bind_rows(
+  happiness_2022 |>
+    slice_max(happiness_score, n = 5) |>
+    mutate(group = "Highest"),
+  happiness_2022 |>
+    slice_min(happiness_score, n = 5) |>
+    mutate(group = "Lowest")
+) |>
+  select(group, name, happiness_score)
+```
+
+Relationship with Population
+
+```{r}
+happiness_pop_2022 <- happiness_2022 |>
+  inner_join(
+    population_long |> filter(year == 2022),
+    by = c("geo", "name", "year")
+  )
+```
+
+```{r}
+cor(
+  happiness_pop_2022$happiness_score,
+  log10(happiness_pop_2022$population),
+  use = "complete.obs"
+)
+```
+
+```{r}
+#| fig-cap: "Happiness score against population, 2022"
+
+ggplot(
+  happiness_pop_2022,
+  aes(population, happiness_score)
+) +
+  geom_point(alpha = 0.6, color = "blue") +
+  scale_x_log10(labels = scales::comma) +
+  labs(
+    x = "Population, log scale",
+    y = "Happiness score",
+    title = "Happiness score against population, 2022"
+  ) +
+  theme_minimal()
+```
+
+The correlation between happiness score and log population is -0.144, indicating a very weak negative relationship. The scatterplot shows substantial variation in happiness scores across countries with similar population sizes, suggesting that population size is not a strong predictor of happiness.
+
+Happiness scores varied substantially across countries, with most 2022 scores between about 45 and 65. Finland had the highest score at 77.29, while Afghanistan had the lowest at 12.81. The relationship between happiness and population was very weak (r = -0.144), suggesting that population size is not strongly related to happiness score.
+
+### 2.4 CO2 Emissions per Capita: Consumption-Based
+
+`co2_per_capita` is quantitative and continuous, measured in tonnes of CO2 per person per year. Values run from near zero to several tens of tonnes.
+
+```{r}
+co2_long |>
+  summarise(
+    n           = n(),
+    n_missing   = sum(is.na(co2_per_capita)),
+    pct_missing = round(100 * mean(is.na(co2_per_capita)), 1),
+    first_year  = min(year[!is.na(co2_per_capita)]),
+    last_year   = max(year[!is.na(co2_per_capita)])
+  )
+```
+
+About 4% of records are missing. Most of this is structural, since many countries are only reported from later years.
+
+```{r}
+co2_long |>
+  filter(co2_per_capita < 0) |>
+  arrange(co2_per_capita)
+```
+
+Seven values from Panama are slightly negative. Consumption-based accounting subtracts exported emissions, so a trade hub can go net negative. These are kept as a real feature of the method, but they matter for modeling.
+
+```{r}
+co2_latest <- co2_long |>
+  filter(!is.na(co2_per_capita), year == max(year[!is.na(co2_per_capita)]))
+
+co2_long |>
+  filter(!is.na(co2_per_capita)) |>
+  summarise(mean = mean(co2_per_capita), median = median(co2_per_capita),
+            sd = sd(co2_per_capita), min = min(co2_per_capita),
+            max = max(co2_per_capita)) |>
+  knitr::kable(digits = 2, caption = "CO2 per capita, all years")
+
+co2_latest |>
+  summarise(year = unique(year), n_countries = n(), mean = mean(co2_per_capita),
+            median = median(co2_per_capita), sd = sd(co2_per_capita),
+            min = min(co2_per_capita), max = max(co2_per_capita)) |>
+  knitr::kable(digits = 2, caption = "CO2 per capita, 2022")
+```
+
+```{r}
+#| fig-cap: "Mean CO2 emissions per capita by year"
+co2_long |>
+  filter(!is.na(co2_per_capita)) |>
+  group_by(year) |>
+  summarise(mean_co2 = mean(co2_per_capita)) |>
+  ggplot(aes(year, mean_co2)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  labs(x = "Year", y = "Mean CO2 per capita, tonnes") +
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: "Distribution of CO2 emissions per capita, 2022"
+ggplot(co2_latest, aes(co2_per_capita)) +
+  geom_histogram(bins = 25, fill = "blue", color = "white") +
+  labs(x = "CO2 per capita, tonnes", y = "Number of countries") +
+  theme_minimal()
+```
+
+```{r}
+bind_rows(
+  co2_latest |> slice_max(co2_per_capita, n = 5) |> mutate(group = "Highest"),
+  co2_latest |> slice_min(co2_per_capita, n = 5) |> mutate(group = "Lowest")
+) |>
+  select(group, name, co2_per_capita) |>
+  knitr::kable(digits = 2, caption = "Highest and lowest CO2 per capita, 2022")
+```
+
+The 2022 distribution is right-skewed, with most countries below 5 tonnes. The highest are Qatar, Singapore, Brunei, Kuwait and the UAE, small wealthy economies tied to oil, gas or trade. The lowest are the DR Congo, Burundi, Somalia, the Central African Republic and Chad. Average emissions climbed through industrialization and have leveled off since about 1980.
+
+```{r}
+#| fig-cap: "CO2 emissions per capita against population, 2022"
+co2_pop_2022 <- co2_latest |>
+  inner_join(population_long |> filter(year == 2022),
+             by = c("geo", "name", "year"))
+
+cor(co2_pop_2022$co2_per_capita, log10(co2_pop_2022$population))
+
+ggplot(co2_pop_2022, aes(population, co2_per_capita)) +
+  geom_point(alpha = 0.6, color = "blue") +
+  scale_x_log10(labels = scales::comma) +
+  labs(x = "Population, log scale", y = "CO2 per capita, tonnes") +
+  theme_minimal()
+```
+
+There is almost no relationship between population and per-capita emissions, with r = -0.06 against log population. This is expected, since the measure is already per person and depends more on income and energy use than country size.
+
+### 2.5 Income Groups: World Bank
+
+`income_level` is categorical and ordinal with four levels: Low, Lower middle, Upper middle and High income, assigned by the World Bank from GNI per capita.
+
+```{r}
+income_long <- income_long |>
+  mutate(income_level = factor(
+    income_level,
+    levels = c("Low income", "Lower middle income",
+               "Upper middle income", "High income"),
+    ordered = TRUE
+  ))
+
+income_long |>
+  summarise(
+    n           = n(),
+    n_missing   = sum(is.na(income_level)),
+    pct_missing = round(100 * mean(is.na(income_level)), 1),
+    first_year  = min(year[!is.na(income_level)]),
+    last_year   = max(year[!is.na(income_level)])
+  ) |>
+  knitr::kable()
+```
+
+There is no missing data from 1987 to 2022, the years the World Bank classifies. Earlier years will appear missing once this is joined with longer variables, which is structural.
+
+```{r}
+income_latest <- income_long |>
+  filter(!is.na(income_level), year == max(year[!is.na(income_level)]))
+
+income_latest |>
+  count(income_level) |>
+  mutate(pct = round(100 * n / sum(n), 1)) |>
+  knitr::kable(caption = "World Bank income group, 2022")
+```
+
+```{r}
+#| fig-cap: "Number of countries by income group, 2022"
+ggplot(income_latest, aes(income_level)) +
+  geom_bar(fill = "orange") +
+  scale_x_discrete(labels = scales::label_wrap(12)) +
+  labs(x = "Income group", y = "Number of countries") +
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: "Share of countries in each income group, 1987 to 2022"
+income_long |>
+  filter(!is.na(income_level)) |>
+  count(year, income_level) |>
+  group_by(year) |>
+  mutate(pct = n / sum(n)) |>
+  ggplot(aes(year, pct, fill = income_level)) +
+  geom_area() +
+  labs(x = "Year", y = "Share of countries", fill = "Income group") +
+  theme_minimal()
+```
+
+In 2022 High income is the largest group with 60 countries, or 30.9%, followed by Lower middle at 55, Upper middle at 53 and Low income at 26. Since 1987 the High income share rose from 18% to almost 31%, while Low income fell from 26% to 13%.
+
+```{r}
+#| fig-cap: "Population by income group, 2022"
+income_pop_2022 <- income_latest |>
+  inner_join(population_long |> filter(year == 2022),
+             by = c("geo", "name", "year"))
+
+income_pop_2022 |>
+  group_by(income_level) |>
+  summarise(n = n(), median_pop = median(population), mean_pop = mean(population)) |>
+  knitr::kable(digits = 0, caption = "Population by income group, 2022")
+
+ggplot(income_pop_2022, aes(income_level, population)) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.6, color = "orange", size = 2) +
+  stat_summary(fun = median, geom = "crossbar", width = 0.5,
+               color = "black", linewidth = 0.4) +
+  scale_x_discrete(labels = scales::label_wrap(12)) +
+  scale_y_log10(labels = scales::comma) +
+  labs(x = "Income group", y = "Population, log scale") +
+  theme_minimal()
+```
+
+Median population is highest in Low income at 21.5 million and lowest in High income at 5.3 million, and every group mean exceeds its median. In Lower middle income the mean of 59 million is over four times the median of 13.8 million, driven by India and Pakistan. China and Indonesia do the same in Upper middle income. Population size and income group look largely unrelated.
