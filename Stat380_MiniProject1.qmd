@@ -9,14 +9,111 @@ editor: visual
 
 ```{r}
 library(readr)
+library(tidyverse)
 #Predicted Variable
 pop <- read_csv("data/pop.csv")
 
 #Predictor Variables
-at_least_basic_sanitation_overall_access_percent <- read_csv("data/at_least_basic_sanitation_overall_access_percent.csv")
-children_per_woman_total_fertility <- read_csv("data/children_per_woman_total_fertility.csv")
-co2_pcap_cons <- read_csv("data/co2_pcap_cons.csv")
-hapiscore_whr <- read_csv("data/hapiscore_whr.csv")
-ilevels4_wb <- read_csv("data/ilevels4_wb.csv")
-number_of_people_in_poverty <- read_csv("data/number_of_people_in_poverty.csv")
+sanitation <- read_csv("data/at_least_basic_sanitation_overall_access_percent.csv")
+fertility <- read_csv("data/children_per_woman_total_fertility.csv")
+co2 <- read_csv("data/co2_pcap_cons.csv")
+happiness <- read_csv("data/hapiscore_whr.csv")
+income <- read_csv("data/ilevels4_wb.csv")
+poverty <- read_csv("data/number_of_people_in_poverty.csv")
+population <- read_csv("data/pop.csv")
+
+# Joining Tables
+drop_and_pivot <- function(df, value_name) {
+  df |>
+    select(-any_of(as.character(2023:2100))) |>
+    pivot_longer(
+      cols = -c(geo, name),
+      names_to = "year",
+      values_to = value_name
+    ) |>
+    mutate(year = as.integer(year))
+}
+
+population_long <- drop_and_pivot(population, "pop")
+sanitation_long <- drop_and_pivot(sanitation, "sanitation_access_pct")
+fertility_long  <- drop_and_pivot(fertility, "children_per_woman")
+co2_long        <- drop_and_pivot(co2, "co2_per_capita")
+happiness_long  <- drop_and_pivot(happiness, "happiness_score")
+income_long     <- drop_and_pivot(income, "income_level")
+poverty_long    <- drop_and_pivot(poverty, "people_in_poverty")
+```
+
+## Join into a single dataset
+
+```{r}
+#| label: join
+combined <- list(
+  sanitation_long, fertility_long, co2_long,
+  happiness_long, income_long, poverty_long, population_long
+) |>
+  reduce(full_join, by = c("geo", "name", "year")) |>
+  arrange(geo, year)
+
+glimpse(combined)
+```
+
+```{r}
+#| label: check
+range(combined$year)
+n_distinct(combined$geo)
+head(combined)
+```
+
+```{r}
+# Summary Statistics and Visualization
+# Number of People In Poverty (Quantitative)
+poverty_long |>
+  group_by(name) |>
+  summarize(mean_poverty = mean(people_in_poverty, na.rm = TRUE),
+    min_poverty = min(people_in_poverty, na.rm = TRUE),
+    max_poverty = max(people_in_poverty, na.rm = TRUE),
+    median_poverty = median(people_in_poverty, na.rm = TRUE),
+    sd_poverty = sd(people_in_poverty, na.rm = TRUE))
+poverty_long |> 
+  ggplot(aes(x=year, y=people_in_poverty, color = name)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Poverty Counts Over Time",
+    x = "Year",
+    y= "Number of People in Poverty"
+  )
+
+#Basic Sanitation Overall (Quantitative)
+sanitation_long |>
+  group_by(name) |>
+  summarize(mean_sanitation_percentage = mean(sanitation_access_pct, na.rm = TRUE),
+    min_sanitation_percentage = min(sanitation_access_pct, na.rm = TRUE),
+    max_sanitation_percentage = max(sanitation_access_pct, na.rm = TRUE),
+    median_sanitation_percentage = median(sanitation_access_pct, na.rm = TRUE),
+    sd_sanitation_percentage = sd(sanitation_access_pct, na.rm = TRUE))
+
+sanitation_long |>
+  ggplot(aes(x=year, y=sanitation_access_pct, color = name)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Basic Sanitation Percentage Over Time",
+    x = "Year",
+    y = "Sanitation Access Percentage"
+  )
+```
+
+```{r}
+set.seed(123)
+sample <- sample(c(TRUE,FALSE), nrow(combined), 
+                 replace=TRUE, prob=c(0.8,0.2))
+
+# creating training dataset
+train_dataset  <- combined[sample, ]
+
+# creating testing dataset
+validation_dataset  <- combined[!sample, ]
+
+Model3 = train_dataset |>
+  lm(pop~sanitation_access_pct+people_in_poverty, data= _) #base R code, the _ tells R where to pipe
+summary(Model3)
 ```
