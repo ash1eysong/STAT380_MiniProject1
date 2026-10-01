@@ -1,0 +1,209 @@
+---
+title: "Linear Model: People in Poverty and Sanitation Access"
+author: "Ian Peralta"
+format:
+  pdf:
+    fig-height: 3
+    fig-width: 6
+editor: visual
+---
+
+> **Source disclosure**
+>
+> Reference sources for the techniques used:
+>
+> - Visualization: ggplot2 reference for `geom_qq`, <https://ggplot2.tidyverse.org/reference/geom_qq.html>
+> - Cleaning: R for Data Science, missing values chapter, <https://r4ds.hadley.nz/missing-values.html>
+> - Other: broom reference for `glance` on linear models, <https://broom.tidymodels.org/reference/glance.lm.html>
+
+## 1. Data Preparation
+
+```{r}
+#| message: false
+library(tidyverse)
+library(broom)
+```
+
+Only the response and the two predictors for this model are imported. The helper below is the same one used in the shared project file.
+
+```{r}
+#| message: false
+population <- read_csv("../data/response/pop.csv")
+sanitation <- read_csv("../data/predictors/at_least_basic_sanitation_overall_access_percent.csv")
+poverty    <- read_csv("../data/predictors/number_of_people_in_poverty.csv")
+
+drop_and_pivot <- function(df, value_name) {
+  df |>
+    select(-any_of(as.character(2023:2100))) |>
+    pivot_longer(
+      cols = -c(geo, name),
+      names_to = "year",
+      values_to = value_name
+    ) |>
+    mutate(year = as.integer(year))
+}
+
+panel <- list(
+  drop_and_pivot(population, "population"),
+  drop_and_pivot(sanitation, "sanitation_access_pct"),
+  drop_and_pivot(poverty, "people_in_poverty")
+) |>
+  reduce(full_join, by = c("geo", "name", "year"))
+```
+
+### 1.1 Missing Data and Cleaning
+
+```{r}
+panel |>
+  summarise(across(c(population, sanitation_access_pct, people_in_poverty),
+                   list(n_missing = ~ sum(is.na(.x)),
+                        pct_missing = ~ round(100 * mean(is.na(.x)), 1)))) |>
+  pivot_longer(everything(), names_to = c("variable", ".value"),
+               names_pattern = "(.*)_(n_missing|pct_missing)") |>
+  knitr::kable()
+```
+
+Sanitation is only reported from 2000 to 2022, so about 90% of the country-year rows lack it. This is structural, not random, and the model uses the rows where all three variables are present.
+
+```{r}
+model_data <- panel |>
+  drop_na(population, sanitation_access_pct, people_in_poverty)
+
+model_data |>
+  summarise(
+    n_rows              = n(),
+    n_countries         = n_distinct(geo),
+    first_year          = min(year),
+    last_year           = max(year),
+    poverty_above_pop   = sum(people_in_poverty > population),
+    sanitation_off_scale = sum(sanitation_access_pct < 0 | sanitation_access_pct > 100)
+  ) |>
+  knitr::kable()
+```
+
+The model data has 4,174 country-year rows from 188 countries between 2000 and 2022. No poverty count exceeds its country population and no sanitation percentage falls outside 0 to 100, so no further cleaning is needed.
+
+### 1.2 Why These Predictors
+
+```{r}
+model_data |>
+  select(population, people_in_poverty, sanitation_access_pct) |>
+  cor() |>
+  knitr::kable(digits = 3, caption = "Correlation matrix of the model variables")
+```
+
+People in poverty has a correlation of 0.77 with population, so it is a natural main predictor. Sanitation is nearly unrelated to population on its own at -0.03, so it is included to test whether it adds anything once poverty is held fixed. The two predictors are only weakly correlated at -0.18, so they do not duplicate each other.
+
+## 2. The Model
+
+The multiple linear regression is population = b0 + b1 * people in poverty + b2 * sanitation access percent.
+
+```{r}
+fit <- model_data |>
+  lm(population ~ people_in_poverty + sanitation_access_pct, data = _)
+
+summary(fit)
+```
+
+```{r}
+tidy(fit, conf.int = TRUE) |>
+  transmute(
+    term,
+    estimate  = format(signif(estimate, 3), big.mark = ",", scientific = FALSE),
+    conf_low  = format(signif(conf.low, 3), big.mark = ",", scientific = FALSE),
+    conf_high = format(signif(conf.high, 3), big.mark = ",", scientific = FALSE),
+    p_value   = if_else(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))
+  ) |>
+  knitr::kable(caption = "Coefficients with 95% confidence intervals")
+```
+
+### 2.1 Interpreting the Slopes
+
+- **People in poverty:** holding sanitation fixed, each additional person in poverty goes with about 2.86 more people in the population. The 95% interval is 2.79 to 2.93. This mostly reflects scale, since larger countries have more people in poverty, and it does not say poverty causes population.
+- **Sanitation access:** holding poverty fixed, each extra percentage point of sanitation access goes with about 527,000 more people, with an interval of 435,000 to 620,000. Sanitation shows no relationship with population by itself, so this effect only appears once poverty is accounted for.
+- **Intercept:** the intercept of about -21.5 million has no practical meaning, because no country has zero people in poverty and zero sanitation access.
+
+Both slopes are highly significant, with p-values below 0.001.
+
+## 3. Evaluating the Model
+
+```{r}
+sd_pop <- sd(model_data$population)
+
+glance(fit) |>
+  transmute(r_squared = r.squared,
+            adj_r_squared = adj.r.squared,
+            rmse_millions = sqrt(mean(resid(fit)^2)) / 1e6,
+            sd_population_millions = sd_pop / 1e6,
+            f_statistic = statistic,
+            p_value = p.value,
+            aic = AIC,
+            bic = BIC) |>
+  knitr::kable(digits = 3, caption = "Model fit measures",
+               col.names = c("R2", "Adj R2", "RMSE millions", "SD pop millions",
+                             "F", "P", "AIC", "BIC"))
+```
+
+The model explains about 60% of the variation in population, with an adjusted R squared of 0.598, so the second predictor is not inflating the fit. The overall F-test is highly significant. The RMSE of about 90 million is smaller than the 141 million standard deviation of population, so the model beats simply predicting the mean, but the typical error is still large.
+
+### 3.1 Out-of-Sample Check
+
+```{r}
+set.seed(380)
+train_rows <- sample(nrow(model_data), size = round(0.8 * nrow(model_data)))
+train <- model_data[train_rows, ]
+test  <- model_data[-train_rows, ]
+
+train_fit <- lm(population ~ people_in_poverty + sanitation_access_pct, data = train)
+
+tibble(
+  set = c("Train", "Test"),
+  rmse_millions = c(
+    sqrt(mean(resid(train_fit)^2)),
+    sqrt(mean((test$population - predict(train_fit, test))^2))
+  ) / 1e6
+) |>
+  knitr::kable(digits = 1, caption = "Train and test RMSE on an 80/20 split")
+```
+
+The test RMSE of 91.5 million is close to the train RMSE of 89.3 million, so the model generalizes about as well as it fits.
+
+### 3.2 Residual Diagnostics
+
+```{r}
+#| fig-cap: "Residuals against fitted values"
+aug <- augment(fit, data = model_data)
+
+ggplot(aug, aes(.fitted, .resid)) +
+  geom_point(alpha = 0.4, color = "blue") +
+  geom_hline(yintercept = 0, color = "black") +
+  scale_x_continuous(labels = scales::label_number(scale = 1e-6)) +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-6)) +
+  labs(x = "Fitted population, millions", y = "Residual, millions") +
+  theme_minimal()
+```
+
+```{r}
+#| fig-cap: "Normal quantile plot of standardized residuals"
+ggplot(aug, aes(sample = .std.resid)) +
+  stat_qq(alpha = 0.4, color = "blue") +
+  stat_qq_line(color = "black") +
+  labs(x = "Theoretical quantiles", y = "Standardized residuals") +
+  theme_minimal()
+```
+
+```{r}
+aug |>
+  slice_max(abs(.resid), n = 5) |>
+  transmute(country = name, year = as.character(year), population,
+            people_in_poverty, sanitation_pct = round(sanitation_access_pct, 1),
+            residual = .resid) |>
+  knitr::kable(digits = 0, format.args = list(big.mark = ","),
+               caption = "Five largest residuals")
+```
+
+The residual plot shows a fan shape rather than an even band. Most points sit in a tight cluster near zero, and 93% of residuals are within 50 million. A diagonal streak of large residuals comes from a few countries with very large populations. All 58 residuals beyond 250 million belong to the USA, China and India. The normal quantile plot has very heavy tails, with standardized residuals reaching 15.6, so the normality and constant variance assumptions are not met and the p-values and intervals should be read with caution. The five largest residuals are all China, which has about 1.4 billion people but a low poverty count, so the model badly underpredicts it.
+
+## 4. Conclusion
+
+The model of population on people in poverty and sanitation access is moderate. It explains about 60% of the variation and generalizes well to held-out rows, but it makes large errors for the most populous countries. Poverty counts carry almost all of the predictive power, while sanitation adds a small but significant amount. A few giant countries break the constant variance and normality assumptions, which is a limit of modeling raw population with these two variables.
