@@ -815,18 +815,10 @@ combined |>
 ```
 This confirms our suspicions that in 2022, the graph would be left skewed. We can see that a clustering of points between 75 and 100. When looking into the data, most of the points on the left side are from developing countries such as Ethiopia and Chad as the bottom 2 countries.
 
+## 3. Linear Model Creation
+
 ```{r}
-set.seed(123)
-sample <- sample(c(TRUE,FALSE), nrow(combined), 
-                 replace=TRUE, prob=c(0.8,0.2))
-
-# creating training dataset
-train_dataset  <- combined[sample, ]
-
-# creating testing dataset
-validation_dataset  <- combined[!sample, ]
-
-Model3 = train_dataset |>
-  lm(pop~sanitation_access_pct+people_in_poverty, data= _) #base R code, the _ tells R where to pipe
-summary(Model3)
+ModelChildrenPoverty = combined |>
+  lm(population~children_per_woman+people_in_poverty, data= _) #base R code, the _ tells R where to pipe
+summary(ModelChildrenPoverty)
 ```
