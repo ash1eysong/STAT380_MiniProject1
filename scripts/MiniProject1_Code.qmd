@@ -81,7 +81,7 @@ head(combined)
 
 ## 2. Exploratory Data Analysis
 
-### 2.1 Population
+### 2.1 Total Population
 
 `population` is quantitative and discrete, measured as the total number of people living in a country. Values are non-negative whole numbers because population represents a count of people. This will be our response variable.
 
@@ -671,42 +671,364 @@ ggplot(income_pop_2022, aes(income_level, population)) +
 
 Median population is highest in Low income at 21.5 million and lowest in High income at 5.3 million, and every group mean exceeds its median. In Lower middle income the mean of 59 million is over four times the median of 13.8 million, driven by India and Pakistan. China and Indonesia do the same in Upper middle income. Population size and income group look largely unrelated.
 
-### 2.6
+### 2.6 People In Poverty
 
 ```{r}
 # Summary Statistics and Visualization
 # Number of People In Poverty (Quantitative)
 poverty_long |>
-  group_by(name) |>
-  summarize(mean_poverty = mean(people_in_poverty, na.rm = TRUE),
-            min_poverty = min(people_in_poverty, na.rm = TRUE),
-            max_poverty = max(people_in_poverty, na.rm = TRUE),
-            median_poverty = median(people_in_poverty, na.rm = TRUE),
-            sd_poverty = sd(people_in_poverty, na.rm = TRUE))
-poverty_long |> 
-  ggplot(aes(x=year, y=people_in_poverty, color = name)) +
-  geom_line(linewidth = 1) +
-  labs(
-    title = "Poverty Counts Over Time",
-    x = "Year",
-    y= "Number of People in Poverty"
-  )
+  summarize(
+    n           = n(),
+    n_missing   = sum(is.na(people_in_poverty)),
+    pct_missing = round(100 * mean(is.na(people_in_poverty)), 1),
+    first_year  = min(year[!is.na(people_in_poverty)]),
+    last_year   = max(year[!is.na(people_in_poverty)])
+    )
+```
 
-#Basic Sanitation Overall (Quantitative)
-sanitation_long |>
-  group_by(name) |>
-  summarize(mean_sanitation_percentage = mean(sanitation_access_pct, na.rm = TRUE),
-            min_sanitation_percentage = min(sanitation_access_pct, na.rm = TRUE),
-            max_sanitation_percentage = max(sanitation_access_pct, na.rm = TRUE),
-            median_sanitation_percentage = median(sanitation_access_pct, na.rm = TRUE),
-            sd_sanitation_percentage = sd(sanitation_access_pct, na.rm = TRUE))
+People in poverty is quantitative and discrete, spanning from 1800 to 2022. It represents the number of people in poverty in a country with poverty defined as living on less than \$3 at 2021 international prices. There are 1566 missing poverty observations, representing 3.6% of the data. The missing values are likely due to limited data in earlier years and for some countries.
 
-sanitation_long |>
-  ggplot(aes(x=year, y=sanitation_access_pct, color = name)) +
-  geom_line(linewidth = 1) +
-  labs(
-    title = "Basic Sanitation Percentage Over Time",
-    x = "Year",
-    y = "Sanitation Access Percentage"
+```{r}
+poverty_long |>
+  filter(
+    !is.na(people_in_poverty),
+    people_in_poverty < 0
+  ) |>
+  arrange(people_in_poverty)
+```
+
+There are no negative values for people in poverty, so no observations need to be removed by this check.
+
+```{r}
+poverty_long |>
+  filter(!is.na(people_in_poverty)) |>
+  group_by(name) |>
+  summarise(
+    mean   = mean(people_in_poverty),
+    median = median(people_in_poverty),
+    sd     = sd(people_in_poverty),
+    min    = min(people_in_poverty),
+    q1     = quantile(people_in_poverty, 0.25),
+    q3     = quantile(people_in_poverty, 0.75),
+    max    = max(people_in_poverty)
   )
 ```
+
+```{r}
+poverty_2022 <- poverty_long |>
+  filter(!is.na(people_in_poverty), year == 2022)
+
+poverty_2022 |>
+  summarise(
+    year        = unique(year),
+    n_countries = n(),
+    mean        = mean(people_in_poverty),
+    median      = median(people_in_poverty),
+    sd          = sd(people_in_poverty),
+    min         = min(people_in_poverty),
+    q1          = quantile(people_in_poverty, 0.25),
+    q3          = quantile(people_in_poverty, 0.75),
+    max         = max(people_in_poverty)
+  )
+```
+
+In 2022, the poverty data set only contained 186 countries with the mean people in poverty over all the countries being 4,699,704 people. Meanwhile, the median is only 203,593.5, which would imply that the graph is right skewed especially since the third quartile is also lower than the mean.
+
+```{r}
+#| fig-cap: "People in Poverty 2022"
+
+combined |>
+  filter(!is.na(people_in_poverty), year == 2022) |>
+  ggplot(mapping = aes(x = people_in_poverty, y = population)) +
+  geom_point(shape = 5) +
+  labs(title = "People in Poverty vs Population",
+       x = "People in Poverty", y = "Population") +
+  theme_minimal()
+```
+
+This confirms our suspicions that in 2022, the graph would be right skewed. We can see that most of the points lie on the left side. When looking into the data, most of the points on the right side are from developing countries such as India and Nigeria as the top 2 countries.
+
+### 2.7 At Least Basic Sanitation Percentage Overall
+
+```{r}
+#Basic Sanitation Overall (Quantitative)
+sanitation_long |>
+  summarize(
+    n           = n(),
+    n_missing   = sum(is.na(sanitation_access_pct)),
+    pct_missing = round(100 * mean(is.na(sanitation_access_pct)), 1),
+    first_year  = min(year[!is.na(sanitation_access_pct)]),
+    last_year   = max(year[!is.na(sanitation_access_pct)])
+    )
+```
+
+Sanitation Access Percentage is quantitative and continuous, spanning from 2000 to 2022. It represents the percentage of people using improved sanitation facilities that are not shared with other households. Improved sanitation facilities are systems designed to separate human waste from human contact. There are 84 missing observations, representing 1.9% of the data. The missing values are likely due to limited data in earlier years and no reporting for some countries. A notable country in the analysis is Andorra with basic sanitation access at 100% between 2000 and 2022.
+
+```{r}
+sanitation_long |>
+  filter(
+    !is.na(sanitation_access_pct),
+    sanitation_access_pct < 0 | sanitation_access_pct > 100
+  ) |>
+  arrange(sanitation_access_pct)
+```
+
+There are no values shown to be outside of the expected 0 to 100 range.
+
+```{r}
+sanitation_long |>
+  filter(!is.na(sanitation_access_pct)) |>
+  group_by(name) |>
+  summarise(
+    mean   = mean(sanitation_access_pct),
+    median = median(sanitation_access_pct),
+    sd     = sd(sanitation_access_pct),
+    min    = min(sanitation_access_pct),
+    q1     = quantile(sanitation_access_pct, 0.25),
+    q3     = quantile(sanitation_access_pct, 0.75),
+    max    = max(sanitation_access_pct)
+  )
+```
+
+```{r}
+sanitation_2022 <- sanitation_long |>
+  filter(!is.na(sanitation_access_pct), year == 2022)
+
+sanitation_2022 |>
+  summarise(
+    year        = unique(year),
+    n_countries = n(),
+    mean        = mean(sanitation_access_pct),
+    median      = median(sanitation_access_pct),
+    sd          = sd(sanitation_access_pct),
+    min         = min(sanitation_access_pct),
+    q1          = quantile(sanitation_access_pct, 0.25),
+    q3          = quantile(sanitation_access_pct, 0.75),
+    max         = max(sanitation_access_pct)
+  )
+```
+
+In 2022, the sanitation data set only contained 182 countries with the mean access to at least basic sanitation over all the countries being 78.60%. Meanwhile, the median is 91.78%, which would imply that the graph is left skewed.
+
+```{r}
+#| fig-cap: "Access to at Least Basic Sanitation Percentage 2022"
+
+combined |>
+  filter(!is.na(sanitation_access_pct), year == 2022) |>
+  ggplot(mapping = aes(x = sanitation_access_pct, y = population)) +
+  geom_point(shape = 5) +
+  labs(title = "Access to at Least Basic Sanitation vs Population",
+       x = "At Least Basic Sanitation (%)", y = "Population") +
+  theme_minimal()
+```
+
+This confirms our suspicions that in 2022, the graph would be left skewed. We can see that a clustering of points between 75 and 100. When looking into the data, most of the points on the left side are from developing countries such as Ethiopia and Chad as the bottom 2 countries.
+
+### 2.8 EDA Discussion
+
+```{r}
+correlations <- tibble(
+  variable = c(
+    "Children per woman",
+    "Happiness score",
+    "CO2 emissions per capita",
+    "People in poverty",
+    "Basic sanitation access"
+  ),
+  correlation = c(
+    cor(children_pop_2022$children_per_woman,
+        log10(children_pop_2022$population),
+        use = "complete.obs"),
+    
+    cor(happiness_pop_2022$happiness_score,
+        log10(happiness_pop_2022$population),
+        use = "complete.obs"),
+    
+    cor(co2_pop_2022$co2_per_capita,
+        log10(co2_pop_2022$population),
+        use = "complete.obs"),
+    
+    cor(
+      inner_join(
+        poverty_long |> filter(year == 2022),
+        population_long |> filter(year == 2022),
+        by = c("geo", "name", "year")
+      )$people_in_poverty,
+      log10(
+        inner_join(
+          poverty_long |> filter(year == 2022),
+          population_long |> filter(year == 2022),
+          by = c("geo", "name", "year")
+        )$population
+      ),
+      use = "complete.obs"
+    ),
+    
+    cor(
+      inner_join(
+        sanitation_long |> filter(year == 2022),
+        population_long |> filter(year == 2022),
+        by = c("geo", "name", "year")
+      )$sanitation_access_pct,
+      log10(
+        inner_join(
+          sanitation_long |> filter(year == 2022),
+          population_long |> filter(year == 2022),
+          by = c("geo", "name", "year")
+        )$population
+      ),
+      use = "complete.obs"
+    )
+  )
+) |>
+  mutate(correlation = round(correlation, 3))
+
+knitr::kable(
+  correlations,
+  caption = "Correlations with log population, 2022"
+)
+```
+
+Based on the exploratory analysis and correlations, we selected people in poverty as the predictor for the simple linear regression. For the multiple linear regression models, we added children per woman and basic sanitation access separately to examine whether these variables provide additional explanatory power beyond poverty. These three variables had the most correlation with our response variable of total population.
+
+## 3. Regression Models
+
+### 3.1 SLR - Predictor: Poverty
+
+```{r}
+slr_data <- combined |>
+  filter(
+    year == 2022,
+    !is.na(population),
+    !is.na(people_in_poverty) )
+
+slr <- lm(
+  population ~ people_in_poverty,
+  data = slr_data)
+
+summary(slr)
+```
+
+The estimated slope for people in poverty is 5.441. This means that for each additional person in poverty, the predicted population increases by approximately 5.441 people, on average.
+
+```{r}
+par(mfrow = c(2,2))
+plot(slr)
+```
+
+**Linearity:** The Residuals vs. Fitted plot shows a noticeable curved pattern, so the linearity assumption is not well satisfied.
+
+**Independence:** Each observation represents a different country, so the observations are treated as independent.
+
+**Normality:** The Q-Q plot shows substantial departures from the reference line, particularly in the tails, so the residuals are not approximately normal.
+
+**Equal variance:** The Scale-Location plot shows increasing residual spread as fitted population increases, indicating that the equal variance assumption is not satisfied.
+
+### 3.2 MLR - Predictor: Poverty + Children per Woman
+
+```{r}
+mlr1_data <- combined |>
+  filter(
+    year == 2022,
+    !is.na(population),
+    !is.na(people_in_poverty),
+    !is.na(children_per_woman)
+  )
+
+mlr1 <- lm(
+  population ~ people_in_poverty + children_per_woman,
+  data = mlr1_data
+)
+
+summary(mlr1)
+```
+
+Holding children per woman constant, each additional person in poverty is associated with an estimated 6.824 person increase in population. Holding people in poverty constant, each additional child per woman is associated with an estimated 37.68 million person decrease in population.
+
+```{r}
+par(mfrow = c(2,2))
+plot(mlr1)
+```
+
+**Linearity:** The residuals show a noticeable pattern rather than random scatter around zero, so the linearity assumption is not satisfied.
+
+**Independence:** Each observation represents a different country, so the observations are treated as independent.
+
+**Normality:** The Q-Q plot shows substantial departures from the reference line, particularly in the tails, so the residuals are not approximately normal.
+
+**Equal Variance:** The Scale-Location plot shows increasing residual spread as fitted population increases, so the equal variance assumption is not satisfied.
+
+### 3.3 MLR - Predictor: Poverty + Sanitation
+
+```{r}
+mlr2_data <- combined |>
+  filter(
+    year == 2022,
+    !is.na(population),
+    !is.na(people_in_poverty),
+    !is.na(sanitation_access_pct)
+  )
+
+mlr2 <- lm(
+  population ~ people_in_poverty + sanitation_access_pct,
+  data = mlr2_data
+)
+
+summary(mlr2)
+```
+
+Holding basic sanitation access constant, each additional person in poverty is associated with an estimated 6.629 person increase in population. Holding people in poverty constant, each one-percentage-point increase in basic sanitation access is associated with an estimated 1.538 million person increase in population.
+
+```{r}
+par(mfrow = c(2,2))
+plot(mlr2)
+```
+
+**Linearity:** The residuals show a noticeable pattern rather than random scatter, so the linearity assumption is not satisfied.
+
+**Independence:** Each observation represents a different country, so the observations are treated as independent.
+
+**Normality:** The Q-Q plot shows substantial departures from the reference line, so the residuals are not approximately normal.
+
+**Equal Variance:** The residual spread increases as fitted population increases, so the equal variance assumption is not satisfied.
+
+### 3.4 Regression Discussion
+
+We compare the models using $R^2$ because it measures the proportion of variation in population that is explained by the predictors in each model. A higher $R^2$ indicates that the model explains more of the variation in the response variable. Our multivariate regression using Children per Woman and Poverty as predicitors has the highest $R^2$ (0.306), compared with 0.280 for our other multivariate model using Poverty and Sanitation as predictors, and 0.225 for the simple linear regression model using only Poverty. This means that our model using Children per Woman and Poverty as predictors was the best performing model.
+
+## 4. Final Question
+
+Is the number of people living in poverty associated with access to basic sanitation across countries in 2022?
+
+```{r}
+poverty_sanitation_2022 <- poverty_long |>
+  filter(year == 2022) |>
+  inner_join(
+    sanitation_long |> filter(year == 2022),
+    by = c("geo", "name", "year")
+  ) |>
+  drop_na(people_in_poverty, sanitation_access_pct)
+
+ggplot(
+  poverty_sanitation_2022,
+  aes(x = people_in_poverty, y = sanitation_access_pct)
+) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    x = "People in poverty",
+    y = "Basic sanitation access (%)",
+    title = "People in Poverty vs. Basic Sanitation Access, 2022"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+cor(
+  poverty_sanitation_2022$people_in_poverty,
+  poverty_sanitation_2022$sanitation_access_pct,
+  use = "complete.obs"
+)
+```
+
+The scatterplot shows a negative relationship between the number of people living in poverty and basic sanitation access. The correlation is -0.403, indicating a moderate negative association: countries with more people in poverty tend to have lower access to basic sanitation. This suggests that poverty and sanitation access are related across countries in 2022, although the relationship does not imply causation.
